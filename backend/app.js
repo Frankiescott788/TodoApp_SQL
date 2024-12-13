@@ -27,13 +27,16 @@ app.use(cookieParser());
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       _id TEXT NOT NULL,
       title TEXT NOT NULL,
-      description TEXT,
-      completed INTEGER NOT NULL DEFAULT 0,
-      user_id INTEGER NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users (id)
+      completed TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      createdAt TEXT NOT NULL
     );
   `);
 })();
+
+
 
 // Signup endpoint
 app.post('/api/signup', (req, res) => {
@@ -54,13 +57,16 @@ app.post('/api/signup', (req, res) => {
 app.post('/api/login', (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = database.prepare('SELECT * FROM users WHERE email = ? AND password = ?').get(email, password);
-    if (user) {
-      res.cookie('auth_token', user._id, { maxAge: 3600000, httpOnly: true, secure: true, path: '/' });
-      res.status(200).json({ message: 'Login successful', user });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
+    const verify_email = database.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!verify_email) {
+      return res.status(400).json({ message: 'User not found' });
     }
+    const verify_password = database.prepare('SELECT * FROM users WHERE email = ? AND password = ?').get(email, password);
+    if(!verify_password){
+      return res.status(404).json({ message: 'Wrong password' });
+    }
+      res.cookie('auth_token', verify_email._id, { maxAge: 3600000, httpOnly: true, secure: true, path: '/' });
+      res.status(200).json({ message: 'Login successful', user : { _id : verify_email._id, username : verify_email.username, email : verify_email.email } });
   } catch (error) {
     console.log(error);
   }
@@ -79,17 +85,21 @@ app.get('/api/currentuser', Authenticate, (req, res) => {
     console.log(error);
   }
 });
+app.get('/api/logout', (req, res) => {
+  res.clearCookie('auth_token');  
+  res.status(200).json({ message: 'Logout successful' });
+});
 
 // Create a new todo
 app.post('/api/todos', Authenticate, (req, res) => {
   try {
-    const { title, description } = req.body;
+    const { title, completed ,createdAt, description, priority} = req.body;
     const user = req.user;
     const todoId = uuid.v4();
-    const sql = 'INSERT INTO todos (_id, title, description, user_id) VALUES (?, ?, ?, ?)';
-    database.prepare(sql).run(todoId, title, description, user.id);
+    const sql = 'INSERT INTO todos (_id, title, completed, priority, description ,user_id, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)';
+    database.prepare(sql).run(todoId, title, completed,  priority,description, user._id,createdAt);
     const todo = database.prepare('SELECT * FROM todos WHERE _id = ?').get(todoId);
-    res.json(todo);
+    res.status(201).json(todo);
   } catch (error) {
     console.log(error);
   }
@@ -99,8 +109,8 @@ app.post('/api/todos', Authenticate, (req, res) => {
 app.get('/api/todos', Authenticate, (req, res) => {
   try {
     const user = req.user;
-    const todos = database.prepare('SELECT * FROM todos WHERE user_id = ?').all(user.id);
-    res.json(todos);
+    const todos = database.prepare('SELECT * FROM todos WHERE user_id = ?').all(user._id);
+    res.status(200).json(todos);
   } catch (error) {
     console.log(error);
   }
@@ -121,25 +131,32 @@ app.get('/api/todos/:id', Authenticate, (req, res) => {
   }
 });
 
-// Update a todo
-app.put('/api/todos/:id', Authenticate, (req, res) => {
+app.patch('/api/todos/:id', Authenticate, (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, completed } = req.body;
+    const { title, todos, completed , priority, description } = req.body;
+
+    if (!title || !priority || !description ) {
+      return res.status(400).json({ message: 'Title and todos are required' });
+    }
+
     const user = req.user;
     const sql = `
       UPDATE todos
-      SET title = ?, description = ?, completed = ?
+      SET title = ?, completed = ?, priority = ?, description = ?
       WHERE _id = ? AND user_id = ?
     `;
-    const result = database.prepare(sql).run(title, description, completed ? 1 : 0, id, user.id);
+    const result = database.prepare(sql).run(title, completed, priority, description, id, user._id);
+
     if (result.changes === 0) {
       return res.status(404).json({ message: 'Todo not found or not authorized' });
     }
+
     const updatedTodo = database.prepare('SELECT * FROM todos WHERE _id = ?').get(id);
-    res.json(updatedTodo);
+    res.status(200).json(updatedTodo);
   } catch (error) {
     console.log(error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
@@ -148,7 +165,7 @@ app.delete('/api/todos/:id', Authenticate, (req, res) => {
   try {
     const { id } = req.params;
     const user = req.user;
-    const result = database.prepare('DELETE FROM todos WHERE _id = ? AND user_id = ?').run(id, user.id);
+    const result = database.prepare('DELETE FROM todos WHERE _id = ? AND user_id = ?').run(id, user._id);
     if (result.changes === 0) {
       return res.status(404).json({ message: 'Todo not found or not authorized' });
     }

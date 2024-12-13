@@ -28,7 +28,7 @@ export default function AuthProvider({ children }: any) {
     }, []);
 
     return (
-        <AuthContext.Provider value={{ isLoading, currentuser, isAuthenticated, setIsAuthenticated }}>
+        <AuthContext.Provider value={{ isLoading, currentuser, isAuthenticated, setIsAuthenticated, setCurrentuser }}>
             {children}
         </AuthContext.Provider>
     )

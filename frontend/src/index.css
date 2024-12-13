@@ -1,3 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.nav-header {
+    box-shadow: 0px 0px 43px -22px rgba(0,0,0,0.1);
+}
